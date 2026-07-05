@@ -41,9 +41,13 @@ interface SearxResponse {
 	unresponsive_engines?: Array<{ engine: string; error: string }>;
 }
 
+type TimeRange = "day" | "week" | "month" | "year";
+const TIME_RANGES: readonly TimeRange[] = ["day", "week", "month", "year"];
+
 interface WebSearchParams {
 	query: string;
 	max_results?: number;
+	time_range?: TimeRange;
 }
 
 interface WebFetchParams {
@@ -74,12 +78,14 @@ export default function searxngSearchExtension(pi: ExtensionAPI) {
 		description:
 			"Search the web via the local SearXNG metasearch instance (aggregates Google, Bing, DuckDuckGo, Wikipedia, and more). " +
 			"Returns a concise ranked list of titles, URLs, and short snippets — no API key required. Use for current info, recent events, " +
-			"library versions, or live docs not in the codebase. Follow up with web_fetch on the best result, and always cite sources.",
+			"library versions, or live docs not in the codebase. Pass time_range ('day'|'week'|'month'|'year') for recency-sensitive " +
+			"queries. Follow up with web_fetch on the best result, and always cite sources.",
 		promptSnippet: "Search the web via the local SearXNG instance; then fetch + cite the best result",
 		promptGuidelines: [
 			"Use web_search for current info beyond the codebase — recent events, library versions, live API docs, or external behavior. Run targeted queries, then web_fetch the single most relevant result to verify specifics before relying on it.",
 			"CITE every searched fact: when you relay any date, figure, quote, or finding from web_search or web_fetch, link the source URL inline as markdown AND list every source under a final '## Sources' heading. Never present a searched fact without its source URL.",
 			"Separate fact from inference: state only what a cited source supports; flag anything you infer or assume, and call out when a result's date or relevance is uncertain (check the article's own date before treating a result as current).",
+			"For 'today'/'latest'/'recent'/'this week' queries, pass time_range ('day' or 'week') to filter to recent results — but STILL verify each result's published date, since time_range filters by engine index/crawl time, which can lag an article's true publish date.",
 		],
 		parameters: Type.Object({
 			query: Type.String({
@@ -92,18 +98,34 @@ export default function searxngSearchExtension(pi: ExtensionAPI) {
 					maximum: 20,
 				}),
 			),
+			time_range: Type.Optional(
+				Type.Union(
+					[
+						Type.Literal("day"),
+						Type.Literal("week"),
+						Type.Literal("month"),
+						Type.Literal("year"),
+					],
+					{ description: "Restrict to results from the last day/week/month/year (recency filter). Omit for all-time results." },
+				),
+			),
 		}),
 		async execute(_toolCallId, params: WebSearchParams, signal) {
 			const query = (params.query ?? "").trim();
 			if (!query) throw new Error("Empty search query.");
 
 			const max = clampInt(params.max_results, 5, 1, 20);
+			const timeRange =
+				typeof params.time_range === "string" && (TIME_RANGES as readonly string[]).includes(params.time_range)
+					? (params.time_range as TimeRange)
+					: undefined;
 
 			const url = new URL(`${SEARXNG}/search`);
 			url.searchParams.set("q", query);
 			url.searchParams.set("format", "json");
 			url.searchParams.set("safesearch", "0");
 			url.searchParams.set("categories", "general");
+			if (timeRange) url.searchParams.set("time_range", timeRange);
 
 			let res: Response;
 			try {
@@ -139,7 +161,7 @@ export default function searxngSearchExtension(pi: ExtensionAPI) {
 						: "";
 				return {
 					content: [{ type: "text", text: `No results for: ${query}${note}` }],
-					details: { query, count: 0, total: data.number_of_results, engines: [] },
+					details: { query, count: 0, total: data.number_of_results, engines: [], time_range: timeRange ?? null },
 				};
 			}
 
@@ -156,7 +178,7 @@ export default function searxngSearchExtension(pi: ExtensionAPI) {
 			const total = data.number_of_results;
 			const totalLabel = typeof total === "number" && total > 0 ? ` of ~${total}` : "";
 			const text =
-				`Search: ${query} (${results.length}${totalLabel} results)\n\n` +
+				`Search: ${query}${timeRange ? ` · past ${timeRange}` : ""} (${results.length}${totalLabel} results)\n\n` +
 				`${lines.join("\n\n")}\n\n` +
 				`Fetch the most relevant result with web_fetch to verify specifics, then cite its URL.`;
 
@@ -167,6 +189,7 @@ export default function searxngSearchExtension(pi: ExtensionAPI) {
 					count: results.length,
 					total,
 					engines: results.map((r) => r.engines ?? []),
+					time_range: timeRange ?? null,
 				},
 			};
 		},
