@@ -1,0 +1,50 @@
+{
+  "name": "pi-searxng",
+  "version": "0.1.0",
+  "description": "Local SearXNG-backed web_search + web_fetch tools for pi — no API key; aggregates ~70 engines via your localhost SearXNG instance, with citation-enforcing guidelines.",
+  "type": "module",
+  "license": "MIT",
+  "author": "Andrew Shih <tofusoul@users.noreply.github.com>",
+  "homepage": "https://github.com/tofusoul/Pi-SearXNG",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tofusoul/Pi-SearXNG.git"
+  },
+  "bugs": {
+    "url": "https://github.com/tofusoul/Pi-SearXNG/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "searxng",
+    "search",
+    "pi-extension",
+    "metasearch",
+    "web-search"
+  ],
+  "files": [
+    "src",
+    "README.md",
+    "LICENSE"
+  ],
+  "pi": {
+    "extensions": [
+      "./src"
+    ]
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "check": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "typescript": "^5.6.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*",
+    "typebox": "*"
+  },
+  "peerDependenciesMeta": {
+    "@earendil-works/pi-coding-agent": { "optional": false },
+    "typebox": { "optional": false }
+  }
+}

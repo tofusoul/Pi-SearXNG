@@ -1,0 +1,21 @@
+# node / npm
+node_modules/
+npm-debug.log*
+.npm/
+
+# build output (none currently — pi loads TS via jiti — but reserved)
+dist/
+build/
+
+# direnv + nix
+.direnv/
+result
+result-*
+flake-result/
+
+# misc
+.DS_Store
+*.log
+.env
+.env.local
+*.tsbuildinfo
