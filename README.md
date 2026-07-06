@@ -62,10 +62,15 @@ Then restart pi (or `/reload`). The tools `web_search` and `web_fetch` become av
 ## Tools
 
 ### `web_search`
-Queries SearXNG, returns a concise ranked list (titles + URLs + short snippets). Defaults to 5 results.
+Queries SearXNG, returns a concise ranked list (titles + URLs + short snippets). Defaults to 5 results. Optional `time_range` (`day`/`week`/`month`/`year`) filters to recent results — use for "today"/"latest" queries, but still verify each result's date (the filter is by engine crawl time, which can lag the true publish date).
 
 ### `web_fetch`
-GETs an http(s) URL and extracts readable text (HTML stripped to text). Use after `web_search` narrows to the best source.
+GETs an http(s) URL and extracts the **main content as clean Markdown** — boilerplate (nav/footer/sidebar/ads) is dropped, and a `Title`/`URL`/`Site`/`Published` metadata header is prepended. Optional `format`:
+- `markdown` (default) — clean main content with links preserved (for citation)
+- `text` — plain text
+- `metadata` — compact page summary only (title/site/date/description)
+
+Use after `web_search` narrows to the best source. On a real news page this cut a 116KB raw page / ~7.7KB noisy old fetch down to ~3KB of clean article text.
 
 Both tools enforce (via guidelines): **cite every searched/fetched fact** with an inline markdown link and a `## Sources` list, separate fact from inference, and check dates before treating a result as current.
 

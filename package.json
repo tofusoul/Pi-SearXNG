@@ -1,6 +1,6 @@
 {
   "name": "pi-searxng",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Local SearXNG-backed web_search + web_fetch tools for pi — no API key; aggregates ~70 engines via your localhost SearXNG instance, with citation-enforcing guidelines.",
   "type": "module",
   "license": "MIT",

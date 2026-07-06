@@ -50,9 +50,13 @@ interface WebSearchParams {
 	time_range?: TimeRange;
 }
 
+type FetchFormat = "markdown" | "text" | "metadata";
+const FETCH_FORMATS: readonly FetchFormat[] = ["markdown", "text", "metadata"];
+
 interface WebFetchParams {
 	url: string;
 	max_chars?: number;
+	format?: FetchFormat;
 }
 
 function clampInt(n: unknown, fallback: number, lo: number, hi: number): number {
@@ -200,8 +204,9 @@ export default function searxngSearchExtension(pi: ExtensionAPI) {
 		name: "web_fetch",
 		label: "Web Fetch",
 		description:
-			"Fetch a web page (http/https) and extract its readable text content. Use after web_search narrows to the best source (or when a " +
-			"specific URL is known) to verify specifics before citing. HTML is stripped to text; scripts, styles, and tags are removed.",
+		"Fetch a web page (http/https) and extract its MAIN content as clean Markdown (boilerplate like nav/footer/sidebar/ads is dropped; " +
+		"title/site/published-date metadata is prepended). Use after web_search narrows to the best source (or when a specific URL is known) " +
+		"to verify specifics before citing. Set format='metadata' for just a compact page summary, or 'text' for plain text.",
 		promptSnippet: "Fetch a URL's text to verify specifics, then cite it",
 		promptGuidelines: [
 			"Use web_fetch to read a URL you intend to cite or quote — usually after web_search narrows to the best source, or when a specific URL is already known.",
@@ -209,9 +214,15 @@ export default function searxngSearchExtension(pi: ExtensionAPI) {
 		],
 		parameters: Type.Object({
 			url: Type.String({ description: "The http:// or https:// URL to fetch." }),
+			format: Type.Optional(
+				Type.Union(
+					[Type.Literal("markdown"), Type.Literal("text"), Type.Literal("metadata")],
+					{ description: "Output format: 'markdown' (default, clean main content with links), 'text' (plain text), or 'metadata' (title/site/date summary only)." },
+				),
+			),
 			max_chars: Type.Optional(
 				Type.Integer({
-					description: "Cap on returned characters (default 10000, max 50000).",
+					description: "Cap on returned characters for the body (default 10000, max 50000). Ignored for format='metadata'.",
 					minimum: 500,
 					maximum: 50000,
 				}),
@@ -223,6 +234,10 @@ export default function searxngSearchExtension(pi: ExtensionAPI) {
 				throw new Error("url must start with http:// or https://");
 			}
 			const cap = clampInt(params.max_chars, 10000, 500, 50000);
+			const format =
+				typeof params.format === "string" && (FETCH_FORMATS as readonly string[]).includes(params.format)
+					? (params.format as FetchFormat)
+					: "markdown";
 
 			let res: Response;
 			try {
@@ -243,44 +258,174 @@ export default function searxngSearchExtension(pi: ExtensionAPI) {
 			}
 
 			const contentType = res.headers.get("content-type") ?? "";
+			const isHtml = contentType.toLowerCase().includes("html");
 			const body = await res.text();
-			const text = contentType.toLowerCase().includes("html") ? htmlToText(body) : body;
-			const trimmed =
-				text.length > cap
-					? text.slice(0, cap) + `\n\n[... truncated; ${text.length} total chars]`
-					: text;
+			const meta: PageMeta = isHtml ? extractMeta(body) : {};
+			const header = formatMetaHeader(raw, meta);
+
+			if (format === "metadata") {
+				return {
+					content: [{ type: "text", text: header }],
+					details: { url: raw, format: format as FetchFormat, chars: header.length, contentType, meta },
+				};
+			}
+
+			const main = isHtml ? selectMainContent(body) : body;
+			const content = isHtml ? (format === "text" ? htmlToText(main) : htmlToMarkdown(main)) : body;
+			const trimmed = truncateAtBoundary(content, cap);
 
 			return {
-				content: [{ type: "text", text: `${raw}\n\n${trimmed}` }],
-				details: { url: raw, chars: trimmed.length, contentType },
+				content: [{ type: "text", text: `${header}\n\n${trimmed}` }],
+				details: { url: raw, format: format as FetchFormat, chars: trimmed.length, contentType, meta },
 			};
 		},
 	});
 }
 
 /**
- * Minimal HTML → readable text. Not a full readability parser (no Readability.js),
- * but good enough for docs/articles: drops scripts/styles/comments, decodes
- * common entities, turns block elements into newlines, collapses whitespace.
+ * ── Content extraction helpers ────────────────────────────────────────
+ * Pure-TS (no DOM parser, no deps). Heuristic pipeline inspired by Jina
+ * Reader / Tavily / Firecrawl: pick the main content, drop boilerplate
+ * (nav/footer/sidebar/ads), convert to Markdown, prepend metadata. Not
+ * perfect on every page, but removes the site-chrome noise that made plain-
+ * text fetches huge and keeps links for citation.
  */
-function htmlToText(html: string): string {
-	return html
-		.replace(/<script[\s\S]*?<\/script>/gi, " ")
-		.replace(/<style[\s\S]*?<\/style>/gi, " ")
-		.replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
-		.replace(/<!--[\s\S]*?-->/g, " ")
+interface PageMeta {
+	title?: string;
+	description?: string;
+	siteName?: string;
+	published?: string;
+}
+
+function decodeEntities(s: string): string {
+	return s
 		.replace(/&nbsp;/g, " ")
 		.replace(/&amp;/g, "&")
 		.replace(/&lt;/g, "<")
 		.replace(/&gt;/g, ">")
 		.replace(/&quot;/g, '"')
 		.replace(/&#39;/g, "'")
-		.replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)))
-		.replace(/<\/(p|div|section|article|li|h[1-6]|tr|br|hr|header|footer|nav|pre|blockquote)>/gi, "\n")
-		.replace(/<br\s*\/?>/gi, "\n")
-		.replace(/<[^>]+>/g, "")
-		.replace(/\r\n/g, "\n")
-		.replace(/[ \t]+/g, " ")
-		.replace(/\n{3,}/g, "\n\n")
-		.trim();
+		.replace(/&#(\d+);/g, (_, d) => String.fromCharCode(Number(d)));
+}
+
+function stripTags(s: string): string {
+	return s.replace(/<[^>]+>/g, "");
+}
+
+/** Collapse inner tag soup of a heading/link/list item to clean text. */
+function stripInline(s: string): string {
+	return stripTags(s).replace(/\s+/g, " ").trim();
+}
+
+/** First <meta> content whose tag matches keyRe (attribute-order agnostic). */
+function metaContent(html: string, keyRe: RegExp): string | undefined {
+	const tags = html.match(/<meta\b[^>]*>/gi) ?? [];
+	for (const tag of tags) {
+		if (keyRe.test(tag)) {
+			const c = tag.match(/\bcontent=["']([^"']*)["']/i);
+			if (c) return decodeEntities(c[1]).trim();
+		}
+	}
+	return undefined;
+}
+
+function firstMatch(html: string, re: RegExp): string | undefined {
+	const m = html.match(re);
+	return m ? decodeEntities(m[1]).trim() : undefined;
+}
+
+function extractMeta(html: string): PageMeta {
+	const title =
+		metaContent(html, /\bog:title\b/i) ||
+		firstMatch(html, /<title[^>]*>([\s\S]*?)<\/title>/i) ||
+		firstMatch(html, /<h1[^>]*>([\s\S]*?)<\/h1>/i);
+	const description =
+		metaContent(html, /\bog:description\b/i) ||
+		metaContent(html, /\bname=["']description["']/i);
+	const siteName = metaContent(html, /\bog:site_name\b/i);
+	const published =
+		metaContent(html, /\barticle:published_time\b/i) ||
+		metaContent(html, /\b(?:name|itemprop)=["'](?:datePublished|pubdate|date)["']/i) ||
+		firstMatch(html, /<time\b[^>]*datetime=["']([^"']+)["']/i);
+	return { title, description, siteName, published };
+}
+
+function formatMetaHeader(url: string, meta: PageMeta): string {
+	const lines = [`# ${meta.title || url}`];
+	lines.push(`URL: ${url}`);
+	if (meta.siteName) lines.push(`Site: ${meta.siteName}`);
+	if (meta.published) lines.push(`Published: ${meta.published.slice(0, 10)}`);
+	if (meta.description) lines.push("", meta.description.trim());
+	return lines.join("\n").trim();
+}
+
+/** Prefer <article>/<main>/content container; fall back to <body>. */
+function selectMainContent(html: string): string {
+	const pick = (re: RegExp): string | undefined => {
+		const m = html.match(re);
+		return m ? m[1] : undefined;
+	};
+	return (
+		pick(/<article\b[^>]*>([\s\S]*?)<\/article>/i) ||
+		pick(/<main\b[^>]*>([\s\S]*?)<\/main>/i) ||
+		pick(/<[^>]+(?:id|class)=["'][^"']*(?:content|post-body|entry-content|article-body|main-content)[^"']*["'][^>]*>([\s\S]*?)<\/(?:div|section|article)>/i) ||
+		pick(/<body\b[^>]*>([\s\S]*?)<\/body>/i) ||
+		html
+	);
+}
+
+/** Remove scripts/styles/comments and boilerplate block tags from a fragment. */
+function stripNoise(html: string): string {
+	return html
+		.replace(/<script[\s\S]*?<\/script>/gi, " ")
+		.replace(/<style[\s\S]*?<\/style>/gi, " ")
+		.replace(/<noscript[\s\S]*?<\/noscript>/gi, " ")
+		.replace(/<template[\s\S]*?<\/template>/gi, " ")
+		.replace(/<!--[\s\S]*?-->/g, " ")
+		.replace(/<(nav|footer|aside|form|svg|iframe)\b[\s\S]*?<\/\1>/gi, " ")
+		.replace(/<img\b[^>]*>/gi, " ");
+}
+
+/** Heuristic HTML → Markdown (headings, lists, links, emphasis, code, blockquote). */
+function htmlToMarkdown(html: string): string {
+	let s = stripNoise(html);
+
+	s = s.replace(/<pre\b[^>]*>([\s\S]*?)<\/pre>/gi, (_m, code) => `\n\n\`\`\`\n${stripTags(code).trim()}\n\`\`\`\n\n`);
+	s = s.replace(/<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/gi, (_m, lvl, inner) => `\n\n${"#".repeat(Number(lvl))} ${stripInline(inner)}\n\n`);
+	s = s.replace(/<blockquote\b[^>]*>([\s\S]*?)<\/blockquote>/gi, (_m, inner) =>
+		`\n` + stripInline(inner).split(/\n+/).map((l: string) => `> ${l}`).join("\n") + `\n`);
+	s = s.replace(/<li\b[^>]*>([\s\S]*?)<\/li>/gi, (_m, inner) => `\n- ${stripInline(inner)}`);
+	s = s.replace(/<\/?(ul|ol)\b[^>]*>/gi, "\n");
+	s = s.replace(/<a\b[^>]*href=["']([^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi, (_m, href, inner) => {
+		const text = stripInline(inner) || href;
+		return href ? `[${text}](${href})` : text;
+	});
+	s = s.replace(/<(strong|b)\b[^>]*>([\s\S]*?)<\/\1>/gi, "**$2**");
+	s = s.replace(/<(em|i)\b[^>]*>([\s\S]*?)<\/\1>/gi, "*$2*");
+	s = s.replace(/<code\b[^>]*>([\s\S]*?)<\/code>/gi, "`$1`");
+	s = s.replace(/<hr\b[^>]*\/?>/gi, "\n\n---\n\n");
+	s = s.replace(/<br\s*\/?>/gi, "\n");
+	s = s.replace(/<\/(p|div|section|article|header|main|tr|td)>/gi, "\n\n");
+
+	s = stripTags(s);
+	s = decodeEntities(s);
+	return s.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Plain-text fallback: de-noise + strip tags + collapse whitespace. */
+function htmlToText(html: string): string {
+	let s = stripNoise(html);
+	s = s.replace(/<\/?(p|div|section|article|li|tr|td|h[1-6]|blockquote|pre|header|footer|main|br|hr)\b[^>]*>/gi, "\n");
+	s = stripTags(s);
+	s = decodeEntities(s);
+	return s.replace(/\r\n/g, "\n").replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n").trim();
+}
+
+/** Truncate at a paragraph/heading boundary, noting the original length. */
+function truncateAtBoundary(text: string, max: number): string {
+	if (text.length <= max) return text;
+	const slice = text.slice(0, max);
+	const lastBreak = slice.lastIndexOf("\n\n");
+	const cut = lastBreak > max * 0.5 ? slice.slice(0, lastBreak) : slice;
+	return `${cut.trimEnd()}\n\n[... truncated; ${text.length} total chars]`;
 }
