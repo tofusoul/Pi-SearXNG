@@ -18,7 +18,7 @@
       # The extension is pure TypeScript loaded by pi via jiti at runtime —
       # there is no compile/build step. The "package" output just stages the
       # source so a NixOS module (or flake input) can point pi at it.
-      version = "0.2.0";
+      version = "0.3.0";
     in
     {
       packages = forAllSystems (

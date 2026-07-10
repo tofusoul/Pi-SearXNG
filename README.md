@@ -62,7 +62,10 @@ Then restart pi (or `/reload`). The tools `web_search` and `web_fetch` become av
 ## Tools
 
 ### `web_search`
-Queries SearXNG, returns a concise ranked list (titles + URLs + short snippets). Defaults to 5 results. Optional `time_range` (`day`/`week`/`month`/`year`) filters to recent results — use for "today"/"latest" queries, but still verify each result's date (the filter is by engine crawl time, which can lag the true publish date).
+Queries SearXNG, returns a concise ranked list (titles + URLs + short snippets). Defaults to 5 results. Optional filters:
+- `time_range` (`day`/`week`/`month`/`year`) — recent results (still verify dates; the filter is by crawl time)
+- `categories` — scope to `news`, `it`, `science`, `images`, `files`, `videos`, `music`, `social media`, `map` (default `general`)
+- `language` — BCP-47 code (`en`, `zh`, `ja`, …) to bias results
 
 ### `web_fetch`
 GETs an http(s) URL and extracts the **main content as clean Markdown** — boilerplate (nav/footer/sidebar/ads) is dropped, and a `Title`/`URL`/`Site`/`Published` metadata header is prepended. Optional `format`:
