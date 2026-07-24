@@ -1,6 +1,6 @@
 # pi-searxng
 
-**Local SearXNG-backed `web_search` + `web_fetch` tools for [pi](https://pi.dev).**
+**Local SearXNG-backed `searxng_web_search` + `searxng_web_fetch` tools for [pi](https://pi.dev).**
 
 No API key. No quota. Your localhost [SearXNG](https://searxng.org) instance fans each query out to ~70 upstream engines (Google, Bing, DuckDuckGo, Wikipedia, …), dedupes and re-ranks, and returns JSON. This package wraps it as two pi tools the agent can call, with **citation-enforcing guidelines** built in.
 
@@ -55,25 +55,27 @@ curl -s 'http://127.0.0.1:8888/search?q=nixos&format=json' | jq '.results[0].tit
 pi install git:github.com/tofusoul/Pi-SearXNG
 ```
 
-Then restart pi (or `/reload`). The tools `web_search` and `web_fetch` become available.
+Then restart pi (or `/reload`). The tools `searxng_web_search` and `searxng_web_fetch` become available.
+
+> **Why the `searxng_` prefix?** Tool names are namespaced so this package **coexists** with `@juicesharp/rpiv-web-tools` (Brave-backed `web_search`/`web_fetch`, used by research agents) without a registration conflict. Use `searxng_web_*` for the no-API-key local SearXNG path; the Brave `web_search`/`web_fetch` continue to serve research subagents.
 
 > If you previously had a standalone `~/.pi/agent/extensions/searxng-search.ts`, **remove it** after installing this package to avoid double-registering the tools.
 
 ## Tools
 
-### `web_search`
+### `searxng_web_search`
 Queries SearXNG, returns a concise ranked list (titles + URLs + short snippets). Defaults to 5 results. Optional filters:
 - `time_range` (`day`/`week`/`month`/`year`) — recent results (still verify dates; the filter is by crawl time)
 - `categories` — scope to `news`, `it`, `science`, `images`, `files`, `videos`, `music`, `social media`, `map` (default `general`)
 - `language` — BCP-47 code (`en`, `zh`, `ja`, …) to bias results
 
-### `web_fetch`
+### `searxng_web_fetch`
 GETs an http(s) URL and extracts the **main content as clean Markdown** — boilerplate (nav/footer/sidebar/ads) is dropped, and a `Title`/`URL`/`Site`/`Published` metadata header is prepended. Optional `format`:
 - `markdown` (default) — clean main content with links preserved (for citation)
 - `text` — plain text
 - `metadata` — compact page summary only (title/site/date/description)
 
-Use after `web_search` narrows to the best source. On a real news page this cut a 116KB raw page / ~7.7KB noisy old fetch down to ~3KB of clean article text.
+Use after `searxng_web_search` narrows to the best source. On a real news page this cut a 116KB raw page / ~7.7KB noisy old fetch down to ~3KB of clean article text.
 
 Both tools enforce (via guidelines): **cite every searched/fetched fact** with an inline markdown link and a `## Sources` list, separate fact from inference, and check dates before treating a result as current.
 
@@ -120,7 +122,7 @@ Pi-SearXNG/
 ├── package.json     # pi-package manifest (pi.extensions → ./src)
 ├── tsconfig.json    # strict type-check config
 ├── src/
-│   └── index.ts     # the extension (web_search + web_fetch)
+│   └── index.ts     # the extension (searxng_web_search + searxng_web_fetch)
 ├── README.md
 └── LICENSE          # MIT
 ```

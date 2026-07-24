@@ -2,13 +2,13 @@
  * pi-searxng — local SearXNG-backed web search + fetch tools for pi.
  *
  * A pi extension package: register the local SearXNG service (see README) as a
- * pair of agent tools — web_search + web_fetch — with no API key and no quota.
+ * pair of agent tools — searxng_web_search + searxng_web_fetch — with no API key and no quota.
  * SearXNG aggregates ~70 upstream engines (Google, Bing, DuckDuckGo, Wikipedia…)
  * and returns JSON.
  *
  * Tools:
- *   - web_search : query SearXNG, return ranked titles + URLs + short snippets
- *   - web_fetch  : GET a URL, strip HTML to readable text (complements search)
+ *   - searxng_web_search : query SearXNG, return ranked titles + URLs + short snippets
+ *   - searxng_web_fetch  : GET a URL, strip HTML to readable text (complements search)
  *
  * Design goals:
  *   - CONCISE: few results by default, short snippets, URLs kept prominent.
@@ -77,20 +77,20 @@ function truncate(text: string, max: number): string {
 }
 
 export default function searxngSearchExtension(pi: ExtensionAPI) {
-	// ── web_search ───────────────────────────────────────────────────────
+	// ── searxng_web_search ───────────────────────────────────────────────────────
 	pi.registerTool({
-		name: "web_search",
+		name: "searxng_web_search",
 		label: "Web Search",
 		description:
 			"Search the web via the local SearXNG metasearch instance (aggregates Google, Bing, DuckDuckGo, Wikipedia, and more). " +
 			"Returns a concise ranked list of titles, URLs, and short snippets — no API key required. Use for current info, recent events, " +
 			"library versions, or live docs not in the codebase. Pass time_range ('day'|'week'|'month'|'year') for recency-sensitive " +
 			"queries. Scope with categories ('news','it','science','images','files','videos','map') and language (BCP-47 like 'en','zh','ja'); " +
-			"defaults to the 'general' category. Follow up with web_fetch on the best result, and always cite sources.",
+			"defaults to the 'general' category. Follow up with searxng_web_fetch on the best result, and always cite sources.",
 		promptSnippet: "Search the web via the local SearXNG instance; then fetch + cite the best result",
 		promptGuidelines: [
-			"Use web_search for current info beyond the codebase — recent events, library versions, live API docs, or external behavior. Run targeted queries, then web_fetch the single most relevant result to verify specifics before relying on it.",
-			"CITE every searched fact: when you relay any date, figure, quote, or finding from web_search or web_fetch, link the source URL inline as markdown AND list every source under a final '## Sources' heading. Never present a searched fact without its source URL.",
+			"Use searxng_web_search for current info beyond the codebase — recent events, library versions, live API docs, or external behavior. Run targeted queries, then searxng_web_fetch the single most relevant result to verify specifics before relying on it.",
+			"CITE every searched fact: when you relay any date, figure, quote, or finding from searxng_web_search or searxng_web_fetch, link the source URL inline as markdown AND list every source under a final '## Sources' heading. Never present a searched fact without its source URL.",
 			"Separate fact from inference: state only what a cited source supports; flag anything you infer or assume, and call out when a result's date or relevance is uncertain (check the article's own date before treating a result as current).",
 			"For 'today'/'latest'/'recent'/'this week' queries, pass time_range ('day' or 'week') to filter to recent results — but STILL verify each result's published date, since time_range filters by engine index/crawl time, which can lag an article's true publish date.",
 			"Scope results: use categories='news' for current events, 'it' for code/libraries/tech, or 'science' for papers; pass language (e.g. 'zh','ja') for non-English queries to get better local results.",
@@ -211,7 +211,7 @@ export default function searxngSearchExtension(pi: ExtensionAPI) {
 			const text =
 				`Search: ${query}${label ? ` · ${label}` : ""} (${results.length}${totalLabel} results)\n\n` +
 				`${lines.join("\n\n")}\n\n` +
-				`Fetch the most relevant result with web_fetch to verify specifics, then cite its URL.`;
+				`Fetch the most relevant result with searxng_web_fetch to verify specifics, then cite its URL.`;
 
 			return {
 				content: [{ type: "text", text }],
@@ -228,17 +228,17 @@ export default function searxngSearchExtension(pi: ExtensionAPI) {
 		},
 	});
 
-	// ── web_fetch ────────────────────────────────────────────────────────
+	// ── searxng_web_fetch ────────────────────────────────────────────────────────
 	pi.registerTool({
-		name: "web_fetch",
+		name: "searxng_web_fetch",
 		label: "Web Fetch",
 		description:
 		"Fetch a web page (http/https) and extract its MAIN content as clean Markdown (boilerplate like nav/footer/sidebar/ads is dropped; " +
-		"title/site/published-date metadata is prepended). Use after web_search narrows to the best source (or when a specific URL is known) " +
+		"title/site/published-date metadata is prepended). Use after searxng_web_search narrows to the best source (or when a specific URL is known) " +
 		"to verify specifics before citing. Set format='metadata' for just a compact page summary, or 'text' for plain text.",
 		promptSnippet: "Fetch a URL's text to verify specifics, then cite it",
 		promptGuidelines: [
-			"Use web_fetch to read a URL you intend to cite or quote — usually after web_search narrows to the best source, or when a specific URL is already known.",
+			"Use searxng_web_fetch to read a URL you intend to cite or quote — usually after searxng_web_search narrows to the best source, or when a specific URL is already known.",
 			"CITE every fetched fact: link the source URL inline as markdown AND list sources under a final '## Sources' heading. Never present fetched facts without their source URL.",
 		],
 		parameters: Type.Object({
